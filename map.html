@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html>
+	
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>aspectui</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     
+    
+    <script src="./map/js/jquery-1.11.0.min.js"></script>
+    <script src="./map/js/jquery-ui.js"></script>
+    <script src="./map/js/spin.js"></script> <!--http://spin.js.org/-->
+    <script src="./map/js/leaflet.js"></script>
+    <script src="./map/js/leaflet.draw.js"></script>
+    <script src="./map/js/L.Control.MousePosition.js"></script>
+    <script src="./map/js/helper_functions.js"></script>
+    <script src="./map/js/spectrahandlingfunctions.js"></script>
+    <script src="./map/js/papaparse.min.js"></script>
+    <script src="./map/js/color_helpers.js"></script>
+    <script src="./map/js/jscolor.js"></script>
+
+        
+
+ 
+    <link rel="stylesheet" href="./map/css/L.Control.MousePosition.css" />
+    <link rel="stylesheet" href="./map/css/leaflet.css" />
+    <link rel="stylesheet" href="./map/css/leaflet.draw.css" />
+    <link rel="stylesheet" href="./map/css/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="./map/css/bootstrap/dashboard.css" />
+    <link rel="stylesheet" href="./map/css/jquery-ui.css" />
+	    
+    <!--[if lte IE 8]>
+
+    <![endif]-->
+    <style type="text/css" media="screen">
+
+
+	    
+	    .icon_selected {
+		    background:#ff0000;
+		    text-align:center;
+		    vertical-align:middle;
+		    border:1px solid #000;
+		    border-radius:20px;
+		    line-height:40px;
+	    }
+	    .icon_unselected {
+		    background:#fff;
+		    text-align:center;
+		    vertical-align:middle;
+		    border:1px solid #000;
+		    border-radius:20px;
+		    line-height:40px;
+	    }
+	    
+	    .leaflet-draw-tooltip {
+		    display: none;
+	    }
+	    
+	    #foreground_color_input_field {
+		color:#ffffff;
+		background-color:#4d4d4d;
+	    }
+	    
+	    #background_color_input_field {
+		color:#000000;
+
+		background-color:#ffff00;
+	    }
+	    
+
+	    .ui-front { z-index: 1000 !important; }
+	    .ui-dialog { z-index: 1001 !important ;}
+
+	    
+    </style>
+    
+    <style>
+	    label, input { display:block; }
+	    fieldset { padding:0; border:0; margin-top:25px; }
+    </style>
+
+
+<script type="text/javascript">
+$(function() {
+
+    $( window ).load(function() {
+	//~ console.log($(window).height());
+	$( "#mapcontainer" ).css( "height", "95%" );
+	$( "#map" ).css( "height", $(window).height() * 0.9 );
+	map.invalidateSize();
+    });
+
+    //<global>
+    MAX_ZOOM = 12;
+    TILE_SIZE = 256;
+    MIN_X = 0;
+    MIN_Y = MIN_X;
+    MAX_X = 0;
+    MAX_Y = MAX_X;
+    MIN_REDSHIFT = 0;
+    MAX_REDSHIFT = 1;
+    PAGE_TITLE = "A Spectra Map";
+    BASE_DIRECTORY = "./";
+    $.ajax({
+	url: "./config.json",
+	type: "GET",
+	dataType: "json",
+	async: false,
+	success: function(data) {
+	    if ( data.max_zoom) {
+		MAX_ZOOM = data.max_zoom
+	    }
+	    if ( data.tile_size) {
+		TILE_SIZE = data.tile_size
+	    }
+	    if ( data.min_x) {
+		MIN_X = data.min_x
+	    }
+	    if ( data.max_x) {
+		MAX_X = data.max_x
+	    }
+	    if ( data.min_y) {
+		MIN_Y = data.min_y
+	    }
+	    if ( data.max_y) {
+		MAX_Y = data.max_y
+	    }
+	    if ( data.page_title) {
+		$("#pagetitle").text(data.page_title)
+	    }
+	    if ( data.base_directory) {
+		BASE_DIRECTORY = data.base_directory
+	    }
+
+	},
+	error: function(status) {
+	    console.log(status);
+	}
+    });
+    
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    };
+
+    function getAjax(url, success, not_found) {
+	var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+	xhr.open('GET', url);
+	xhr.onreadystatechange = function() {
+	    if (xhr.readyState>3 && xhr.status==200) success(xhr.responseText);
+	    if (xhr.readyState>3 && xhr.status==404) not_found();
+	};
+	xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+	xhr.send();
+	return xhr;
+    }
+
+    //Function to obtain parameters from URL
+    //taken from https://css-tricks.com/snippets/javascript/get-url-variables/
+    function getQueryVariable(variable)
+    {
+           var query = window.location.search.substring(1);
+           var vars = query.split("&");
+           for (var i=0;i<vars.length;i++) {
+                   var pair = vars[i].split("=");
+                   if(pair[0] == variable){return pair[1];}
+           }
+           return(false);
+    }
+
+    //</global>
+
+
+
+    //map bounds
+    var lefttop = L.latLng(tile2lat(MIN_Y,MAX_ZOOM), tile2long(MIN_X,MAX_ZOOM)),
+	rightbottom = L.latLng(tile2lat(MAX_Y, MAX_ZOOM), tile2long(MAX_X, MAX_ZOOM)),
+	mapbounds = L.latLngBounds(lefttop, rightbottom);
+
+    var overlayLayers = new Object();
+    var user_defined_layers = new Object();
+
+
+    var ProgressLayer = L.GridLayer.extend({
+	createTile: function(coords){
+	    // create a <canvas> element for drawing
+	    var tile = L.DomUtil.create('div', 'leaflet-tile-progress_' + coords.x + '_' + coords.y + '_' + coords.z);
+	    // setup tile width and height according to the options
+	    var size = this.getTileSize();
+	    tile.width = size.x;
+	    tile.height = size.y;
+
+	    //spinner
+	    var opts = {
+	      lines: 13 // The number of lines to draw
+	    , length: 28 // The length of each line
+	    , width: 14 // The line thickness
+	    , radius: 42 // The radius of the inner circle
+	    , scale: 1 // Scales overall size of the spinner
+	    , corners: 1 // Corner roundness (0..1)
+	    , color: $("#foreground_color_input_field").css("background-color") //'#000' // #rgb or #rrggbb or array of colors
+	    , opacity: 0.25 // Opacity of the lines
+	    , rotate: 0 // The rotation offset
+	    , direction: -1 // 1: clockwise, -1: counterclockwise
+	    , speed: 1 // Rounds per second
+	    , trail: 60 // Afterglow percentage
+	    , fps: 20 // Frames per second when using setTimeout() as a fallback for CSS
+	    , zIndex: 2e9 // The z-index (defaults to 2000000000)
+	    , className: 'spinner' // The CSS class to assign to the spinner
+	    , top: '50%' // Top position relative to parent
+	    , left: '50%' // Left position relative to parent
+	    , shadow: false // Whether to render a shadow
+	    , hwaccel: true // Whether to use hardware acceleration
+	    , position: 'absolute' // Element positioning
+	    }
+	    var spinner = new Spinner(opts).spin(tile);
+
+	    // return the tile so it can be rendered on screen
+	    return tile;
+	}
+    });
+
+    var progress_layer = new ProgressLayer({
+	maxZoom: MAX_ZOOM,
+	minZoom: Math.max(0, MAX_ZOOM - 2),
+	tileSize: TILE_SIZE,
+	unloadInvisibleTiles: true,
+	noWrap: true,
+	zIndex:31
+	
+	
+    });
+
+    var spectra_layer = new L.GridLayer({
+	maxZoom: MAX_ZOOM,
+	minZoom: Math.max(0, MAX_ZOOM - 2),
+	tileSize: TILE_SIZE,	
+	unloadInvisibleTiles: true,
+	noWrap: true,
+	zIndex: 30
+    });
+
+    spectra_layer.createTile = function(tilePoint) {
+	var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	canvas.width = TILE_SIZE;
+	canvas.height = TILE_SIZE;
+	var zoom = tilePoint.z;
+	
+	if (tilePoint.x >= 0 & tilePoint.y >= 0) {
+	    var spectrum_image_src = './spec_icons/' + zoom + '/' + tilePoint.x+'/'+tilePoint.y;
+
+	    var show_tile = function(canvas, url) {
+		var ctx = canvas.getContext('2d');
+		var spectrum_image = new Image();
+		spectrum_image.onload = function() {
+		    ctx.drawImage(this, 0, 0);
+		    var spectrum_image = ctx.getImageData(0,0,canvas.width, canvas.height);
+			var spectrum_image_pixels = spectrum_image.data;
+			var rgb_foreground = $("#foreground_color_input_field").css("background-color").replace(/^rgba?\(|\s+|\)$/g,'').split(',');
+			for (var pixel_index = 0; pixel_index < spectrum_image_pixels.length; pixel_index += 4) {
+			    if (spectrum_image_pixels[pixel_index + 3] > 0) {
+				spectrum_image_pixels[pixel_index] = rgb_foreground[0]
+				spectrum_image_pixels[pixel_index + 1] = rgb_foreground[1]
+				spectrum_image_pixels[pixel_index + 2] = rgb_foreground[2]
+			    }
+			}
+		    ctx.putImageData(spectrum_image, 0, 0)
+		    // remove spinner
+		    document.querySelector("div.leaflet-tile-progress_" + tilePoint.x + "_" + tilePoint.y + "_" + tilePoint.z + ".leaflet-tile.leaflet-tile-loaded").style.display='none';
+		    //~ console.log(document.querySelector("div.leaflet-tile-progress_" + tilePoint.x + "_" + tilePoint.y + "_" + tilePoint.z + ".leaflet-tile.leaflet-tile-loaded"));
+		};
+		spectrum_image.src = url;
+
+	    };
+	    
+	    var tile_is_rendered = function(url, canvas) {
+		var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+		xhr.open('GET', url + '/exists');
+		xhr.onreadystatechange = function() {
+		    if (xhr.readyState>3 && xhr.status==201) {
+			show_tile(canvas, url);
+			return(true);
+		    }
+		    else if (xhr.readyState>3 && xhr.status==202) {
+			sleep(1000);
+			tile_is_rendered(url, canvas);
+		    }
+		    //~ else {
+			//~ return(false);
+		    //~ }
+		};
+		xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+		xhr.send();
+		//return xhr;
+	    }
+	    tile_is_rendered(spectrum_image_src, canvas );
+
+	}
+	return canvas;
+
+    };
+    
+		
+    var spec_exist_layer = new L.GridLayer({
+	    maxZoom: MAX_ZOOM,
+	    tileSize: TILE_SIZE,
+	    unloadInvisibleTiles: false,
+	    nowrap: true,
+	    bounds: mapbounds,
+	    zIndex:20
+    });
+
+    spec_exist_layer.createTile = function(tilePoint) {
+	var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	canvas.width = TILE_SIZE;
+	canvas.height = TILE_SIZE;
+	var zoom = tilePoint.z;
+	if (tilePoint.x >= 0 && tilePoint.y >= 0) {
+	    var ctx = canvas.getContext('2d');
+	    
+	    var show_tile = function(canvas, Arr_exists, zoom) {
+		    var ctx = canvas.getContext('2d');
+		    var num_subtiles = Math.floor(Math.sqrt(Arr_exists.length))
+		    if (num_subtiles == Math.sqrt(Arr_exists.length)) {
+			if (zoom < MAX_ZOOM - 3) {
+			    ctx.scale(TILE_SIZE/(Math.pow(2, (MAX_ZOOM - zoom))), TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))))
+			    var rgb_background = $("#background_color_input_field").css("background-color");
+			    for (var i = 0; i < Arr_exists.length; i++) {
+				if (Arr_exists[i].charCodeAt(0) == 1) {
+				    var sub_x = i % num_subtiles
+				    var sub_y = Math.floor( i / num_subtiles)
+				    ctx.fillStyle=rgb_background;
+				    ctx.fillRect(sub_x, sub_y ,1,1);
+				}
+			    }
+			    
+			}
+			else {
+
+			    ctx.scale(1/(Math.pow(2,(MAX_ZOOM - zoom))), 1/(Math.pow(2,(MAX_ZOOM - zoom))))
+			    var rgb_background = $("#background_color_input_field").css("background-color");
+			    for (var i = 0; i < Arr_exists.length; i++) {
+				if (Arr_exists[i].charCodeAt(0) == 1) {
+				    var sub_x = i % num_subtiles
+				    var sub_y = Math.floor( i / num_subtiles)
+				    ctx.fillStyle=rgb_background;
+				    ctx.fillRect(sub_x * TILE_SIZE + 4, sub_y * TILE_SIZE + 4,TILE_SIZE -4 ,TILE_SIZE -4);
+				}
+			    }
+			}
+		    }
+		}
+		
+		var url = './specs_exist/' + zoom + '/' + tilePoint.x + '/' + tilePoint.y
+		var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+		xhr.open('GET', url);
+		xhr.onreadystatechange = function() {
+		    if (xhr.readyState == 4 && (xhr.status==200 || xhr.status==304)) {
+			show_tile(
+			    canvas, 
+			    xhr.responseText,
+			    zoom
+			)
+		    }
+		};
+		xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+		xhr.send();
+	}
+	return canvas;
+
+    };
+
+
+   var spec_redshift_layer = new L.GridLayer({
+	    maxZoom: MAX_ZOOM,
+	    minZoom: 2,
+	    tileSize: TILE_SIZE,
+	    unloadInvisibleTiles: false,
+	    nowrap: true,
+	    bounds: mapbounds,
+	    zIndex:20
+    });
+
+
+    spec_redshift_layer.createTile = function(tilePoint) {
+	var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	canvas.width = TILE_SIZE;
+	canvas.height = TILE_SIZE;
+	var zoom = tilePoint.z;
+	if (tilePoint.x >= 0 && tilePoint.y >= 0) {
+	    var show_tile = function(canvas, Arr_redshifts, zoom) {
+		var ctx = canvas.getContext('2d');
+		var num_subtiles = Math.floor(Math.sqrt(Arr_redshifts.length))
+		if (num_subtiles == Math.sqrt(Arr_redshifts.length)) {
+		    
+		    // more efficient drawing when many subtiles in one tile
+		    if (zoom < MAX_ZOOM - 3) {
+			ctx.scale(TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))), TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))))
+		    }
+		    else {
+			ctx.scale(1/(Math.pow(2,(MAX_ZOOM - zoom))), 1/(Math.pow(2,(MAX_ZOOM - zoom))))
+		    }
+		    
+		    for (var i = 0; i < Arr_redshifts.length; i++) {
+			if (Arr_redshifts[i] != -9999) {
+			    var sub_x = i % num_subtiles
+			    var sub_y = Math.floor( i / num_subtiles)
+		    
+				ctx.fillStyle = redshift_to_color(MIN_REDSHIFT, MAX_REDSHIFT, Arr_redshifts[i]);
+				
+			    //~ }
+			    // more efficient drawing when many subtiles in one tile
+			    if (zoom < MAX_ZOOM - 3) {
+				ctx.fillRect(sub_x, sub_y ,1,1);
+			    }
+			    else {
+				ctx.fillRect(sub_x * TILE_SIZE + 4, sub_y * TILE_SIZE + 4,TILE_SIZE -4 ,TILE_SIZE -4);
+			    }
+			}
+		    }
+		}
+	    }
+	    
+	    var url = './redshift/' + zoom + '/' + tilePoint.x + '/' + tilePoint.y
+	    var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+	    xhr.open('GET', url);
+	    xhr.onreadystatechange = function() {
+		if (xhr.readyState == 4 && (xhr.status==200 || xhr.status==304)) {
+		    show_tile(
+			canvas, 
+			JSON.parse(xhr.responseText),
+			zoom
+		    )
+		}
+	    };
+	    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+	    xhr.send();
+	}
+	return canvas;
+
+    };
+
+   var spec_class_layer = new L.GridLayer({
+	    maxZoom: MAX_ZOOM,
+	    minZoom: 2,
+	    tileSize: TILE_SIZE,
+	    unloadInvisibleTiles: false,
+	    nowrap: true,
+	    bounds: mapbounds,
+	    zIndex:20
+    });
+
+
+    spec_class_layer.createTile = function(tilePoint) {
+	var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	canvas.width = TILE_SIZE;
+	canvas.height = TILE_SIZE;
+	var zoom = tilePoint.z;
+	if (tilePoint.x >= 0 && tilePoint.y >= 0) {
+	    var show_tile = function(canvas, Arr_spec_classes, zoom) {
+		var ctx = canvas.getContext('2d');
+		var num_subtiles = Math.floor(Math.sqrt(Arr_spec_classes.length))
+		if (num_subtiles == Math.sqrt(Arr_spec_classes.length)) {
+		    
+		    // more efficient drawing when many subtiles in one tile
+		    if (zoom < MAX_ZOOM - 3) {
+			ctx.scale(TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))), TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))))
+		    }
+		    else {
+			ctx.scale(1/(Math.pow(2,(MAX_ZOOM - zoom))), 1/(Math.pow(2,(MAX_ZOOM - zoom))))
+		    }
+		    
+		    for (var i = 0; i < Arr_spec_classes.length; i++) {
+			if (Arr_spec_classes[i] != -9999) {
+			    var sub_x = i % num_subtiles
+			    var sub_y = Math.floor( i / num_subtiles)
+		    
+				ctx.fillStyle = spec_class_to_color(Arr_spec_classes[i]);
+				
+			    //~ }
+			    // more efficient drawing when many subtiles in one tile
+			    if (zoom < MAX_ZOOM - 3) {
+				ctx.fillRect(sub_x, sub_y ,1,1);
+			    }
+			    else {
+				ctx.fillRect(sub_x * TILE_SIZE + 4, sub_y * TILE_SIZE + 4,TILE_SIZE -4 ,TILE_SIZE -4);
+			    }
+			}
+		    }
+		}
+	    }
+	    
+	    var url = './spec_class/' + zoom + '/' + tilePoint.x + '/' + tilePoint.y
+	    var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+	    xhr.open('GET', url);
+	    xhr.onreadystatechange = function() {
+		if (xhr.readyState == 4 && (xhr.status==200 || xhr.status==304)) {
+		    show_tile(
+			canvas, 
+			JSON.parse(xhr.responseText),
+			zoom
+		    )
+		}
+	    };
+	    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+	    xhr.send();
+	}
+	return canvas;
+
+    };
+
+   var spec_sn_median_layer = new L.GridLayer({
+	    maxZoom: MAX_ZOOM,
+	    minZoom: 2,
+	    tileSize: TILE_SIZE,
+	    unloadInvisibleTiles: false,
+	    nowrap: true,
+	    bounds: mapbounds,
+	    zIndex:20
+    });
+
+
+    spec_sn_median_layer.createTile = function(tilePoint) {
+	var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	canvas.width = TILE_SIZE;
+	canvas.height = TILE_SIZE;
+	var zoom = tilePoint.z;
+	if (tilePoint.x >= 0 && tilePoint.y >= 0) {
+	    var show_tile = function(canvas, Arr_sn_medians, zoom) {
+		var ctx = canvas.getContext('2d');
+		var num_subtiles = Math.floor(Math.sqrt(Arr_sn_medians.length))
+		if (num_subtiles == Math.sqrt(Arr_sn_medians.length)) {
+		    
+		    // more efficient drawing when many subtiles in one tile
+		    if (zoom < MAX_ZOOM - 3) {
+			ctx.scale(TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))), TILE_SIZE/(Math.pow(2,(MAX_ZOOM - zoom))))
+		    }
+		    else {
+			ctx.scale(1/(Math.pow(2,(MAX_ZOOM - zoom))), 1/(Math.pow(2, (MAX_ZOOM - zoom))))
+		    }
+		    
+		    for (var i = 0; i < Arr_sn_medians.length; i++) {
+			if (Arr_sn_medians[i] != -9999) {
+			    var sub_x = i % num_subtiles
+			    var sub_y = Math.floor( i / num_subtiles)
+		    
+				ctx.fillStyle = sn_median_to_color(MIN_REDSHIFT, MAX_REDSHIFT, Arr_sn_medians[i]);
+				
+			    //~ }
+			    // more efficient drawing when many subtiles in one tile
+			    if (zoom < MAX_ZOOM - 3) {
+				ctx.fillRect(sub_x, sub_y ,1,1);
+			    }
+			    else {
+				ctx.fillRect(sub_x * TILE_SIZE + 4, sub_y * TILE_SIZE + 4,TILE_SIZE -4 ,TILE_SIZE -4);
+			    }
+			}
+		    }
+		}
+	    }
+	    
+	    var url = './sn_median/' + zoom + '/' + tilePoint.x + '/' + tilePoint.y
+	    var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
+	    xhr.open('GET', url);
+	    xhr.onreadystatechange = function() {
+		if (xhr.readyState == 4 && (xhr.status==200 || xhr.status==304)) {
+		    show_tile(
+			canvas, 
+			JSON.parse(xhr.responseText),
+			zoom
+		    )
+		}
+	    };
+	    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+	    xhr.send();
+	}
+	return canvas;
+
+    };
+
+    var equivalent_width_layer = new L.GridLayer({
+	    maxZoom: MAX_ZOOM,
+	    minZoom: MAX_ZOOM,
+	    tileSize: TILE_SIZE,
+	    unloadInvisibleTiles: true,
+	    nowrap: true,
+	    bounds: mapbounds,
+	    zIndex:25
+    });
+
+    equivalent_width_layer.createTile = function(tilePoint) {
+	var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	canvas.width = TILE_SIZE;
+	canvas.height = TILE_SIZE;
+	var zoom = tilePoint.z;
+	var ctx = canvas.getContext('2d');
+	ctx.font = "14px Serif";
+	ctx.fillStyle = '#000080';
+
+	var number_of_tiles=Math.pow(2,MAX_ZOOM-zoom)
+	var real_x = number_of_tiles*tilePoint.x;
+	var real_y = number_of_tiles*tilePoint.y;
+
+
+	var SOM_key_range={'left':real_x, 'right':real_x+number_of_tiles, 'top':real_y, 'bottom':real_y+number_of_tiles}
+	$.ajax({
+	    url: BASE_DIRECTORY + "/equivalent_widths/" + tilePoint.x + "-" + tilePoint.y + ".json",
+	    type: "GET",
+	    dataType: "json",
+	    success: function(json) {
+		if (json.data) {
+			var rescale=Math.pow(0.5,(MAX_ZOOM-zoom));
+			ctx.fillText("EW Hα: " + json.data['halpha'].toFixed(2), 80,220);
+			ctx.fillText("EW Hδ: " + json.data['hdelta'].toFixed(2), 80,233);
+			ctx.fillText("Objtype: " + json.data['objtype'], 80,246);
+		};
+
+	    }
+	    
+	});
+	return canvas;
+
+    };
+
+
+
+    function get_active_user_selection_layer_name() {
+	    var active_user_selection_layer_number = $( "#user_selection_layers" ).accordion( "option", "active" );
+	    var active_user_selection_layer = $( "#user_selection_layers > div > div > .layer_name")[active_user_selection_layer_number];
+	    return $(active_user_selection_layer).text();
+	    
+    };
+
+    function importCSVtoUserDefinedLayer() {
+	//FIXME: sanity checks
+	var active_user_selection_layer_name = get_active_user_selection_layer_name();
+	var csv_import = Papa.parse( csv_import_textarea.value, {
+	    header: true, 
+	    dynamicTyping: true, 
+	    skipEmptyLines: true
+	});
+	if (csv_import.data && csv_import.data.length > 0) {
+	    if ( $.inArray("som_x", csv_import.meta.fields) > -1 &&
+		 $.inArray("som_y", csv_import.meta.fields) > -1
+	    )
+	    {
+		
+		// TODO: Der AJAX-CALL gibt ein ARRAY für 2**MAX_ZOOM * 2**MAX_ZOOM zurück
+		// effizientier wäre in den meisten Fällen ein ARRAY für MAX_Y * MAX_X 
+		$.ajax({
+		    url: './specs_exist/' + 0 + '/' + 0 + '/' + 0,
+		    type: "GET",
+		    dataType: "text",
+		    async: false,
+		    success: function(data) {
+
+			var edge_length = Math.pow(2, MAX_ZOOM)
+			if (data.length == Math.pow(edge_length,2)) {
+			    for (var i = 0; i< csv_import.data.length; i++) {
+				var x = csv_import.data[i].som_x;
+				var y = csv_import.data[i].som_y;
+				if (data[ x * edge_length + y ].charCodeAt(0) == 1) {
+				    //FIXME: doppelter code (siehe rectangular marker)
+				    if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
+					if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
+					    delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
+					}
+					else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+				    }
+				    else {
+					user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x] = [];
+					//FIXME: doppelter code, siehe ein paar Zeilen vorher
+					user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+				    };
+				    //FIXME: doppelter code wie bei rectangular marker zu Ende
+				}
+				
+				
+			    };
+			}
+
+		    },
+		    error: function(status) {
+			console.log(status);
+		    }
+		});
+
+	    //~ });
+	    dialog_csv_import.dialog( "close" );
+		    
+	    };
+
+	    if ($.inArray("mjd", csv_import.meta.fields) > -1 && 
+		$.inArray("plate", csv_import.meta.fields) > -1 &&
+		$.inArray("fiberid", csv_import.meta.fields) > -1 &&
+		$.inArray("som_x", csv_import.meta.fields) == -1 &&
+		$.inArray("som_y", csv_import.meta.fields) == -1
+	    )
+	    {
+		$("#csv_import_textarea").val("...")
+		$("#csv_import_textarea").val("Please be patient, this may take a while, depending on the length of your input catalog.")
+
+		$.each(csv_import.data, function(key, import_sdss_ids) {
+		    var import_mjd=import_sdss_ids.mjd;
+		    var import_plate=import_sdss_ids.plate;
+		    var import_fiberid=import_sdss_ids.fiberid;
+
+
+		    $.ajax({
+			url: "./sdss_to_som/" + import_mjd + "/" + import_plate + "/" + import_fiberid,
+			type: "GET",
+			dataType: "json",
+			async: false,
+			success: function(data) {
+			    //~ if ( data.som_x && data.som_y) {
+				var x = data.som_x;
+				var y = data.som_y;
+				//FIXME: doppelter code (siehe rectangular marker)
+				if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
+				    if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
+					delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
+				    }
+				    else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+				}
+				else {
+				    user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x] = [];
+				    //FIXME: doppelter code, siehe ein paar Zeilen vorher
+				    user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;					    
+				};
+				//FIXME: doppelter code wie bei rectangular marker zu Ende
+
+			    //~ }
+
+			},
+			error: function(status) {
+			    console.log(status);
+			}
+		    });
+
+		});
+		dialog_csv_import.dialog( "close" );
+
+	    };
+	};
+
+	if ( map.hasLayer(user_defined_layers[active_user_selection_layer_name]) ) {
+	    user_defined_layers[active_user_selection_layer_name].redraw();
+	};
+    };
+    function addUserDefinedLayerByDialog() {
+	addUserDefinedLayer(user_defined_selection_layer_name.value, user_defined_selection_layer_color.value, "line");
+	dialog_add_user_defined_selection_layer.dialog( "close" );
+	$('#user_selection_layers').accordion("refresh");        
+	return true;
+    };
+
+    function addUserDefinedLayer(layer_name, layer_color, layer_marker) {
+	//~ console.log(user_defined_layers);
+
+
+	user_defined_layers[layer_name] =
+	new L.GridLayer({
+	    maxZoom: MAX_ZOOM,
+	    tileSize: TILE_SIZE,
+	    unloadInvisibleTiles: false,
+	    noWrap: true,
+	    zIndex:40,
+	    bounds: mapbounds,
+	    user_defined_layer_name: layer_name,
+	    user_defined_layer_color: layer_color,
+	    user_defined_layer_members: []
+	});
+	user_defined_layers[layer_name].createTile = function(tilePoint) {
+	    var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
+	    canvas.width = TILE_SIZE;
+	    canvas.height = TILE_SIZE;
+	    var ctx = canvas.getContext('2d');
+	    var zoom = tilePoint.z;
+	    var layer_name = this.options.user_defined_layer_name;
+	    var number_of_tiles=Math.pow(2,MAX_ZOOM-zoom);
+	    var real_x = number_of_tiles*tilePoint.x;
+	    var real_y = number_of_tiles*tilePoint.y;
+
+	    var som_coordinate_range={
+		'left':real_x, 
+		'right':real_x+number_of_tiles, 
+		'top':real_y, 
+		'bottom':real_y+number_of_tiles
+	    };
+
+	    for (var som_x = som_coordinate_range.left; som_x<=som_coordinate_range.right; som_x++) {
+		for (var som_y = som_coordinate_range.top; som_y<= som_coordinate_range.bottom; som_y++) {
+		    if ( user_defined_layers[layer_name].options.user_defined_layer_members[som_x] && user_defined_layers[layer_name].options.user_defined_layer_members[som_x][som_y] ) {
+			var rescale=Math.pow(0.5,(MAX_ZOOM-zoom));
+			var xshift=som_x-real_x;
+			var yshift=som_y-real_y;
+
+			//var selection_indicator = "line" //or rectangle
+			ctx.setTransform(rescale,0,0,rescale,TILE_SIZE*rescale*(xshift),TILE_SIZE*rescale*(yshift));
+			if (layer_marker == "rectangle") {
+			    //fill background
+			    ctx.globalAlpha=0.6;
+			    ctx.fillStyle="#" + user_defined_layers[layer_name].options.user_defined_layer_color;
+			    //following line for completeley filled tile
+			    ctx.fillRect(2,2,TILE_SIZE-4,TILE_SIZE-4);
+			}
+			else if (layer_marker == "line") {
+			    if (zoom < MAX_ZOOM - 3) {
+				//fill background when detail level becomes too low
+				ctx.globalAlpha=0.6;
+				ctx.fillStyle="#" + user_defined_layers[layer_name].options.user_defined_layer_color;;
+				ctx.fillRect(0,0,TILE_SIZE,TILE_SIZE);
+			    }
+			    else {
+				ctx.globalAlpha = 0.6
+				ctx.strokeStyle="#" + user_defined_layers[layer_name].options.user_defined_layer_color;;
+				ctx.lineWidth=TILE_SIZE/8;
+				ctx.strokeRect(ctx.lineWidth/2 + 2,ctx.lineWidth/2 + 2,TILE_SIZE-ctx.lineWidth-2,TILE_SIZE-ctx.lineWidth-2); 
+			    }
+			}
+			else if (layer_marker =="cross") {
+			    ctx.globalAlpha=0.6;
+			    ctx.strokeStyle="#" + user_defined_layers[layer_name].options.user_defined_layer_color;;
+			    ctx.lineWidth=3;
+			    ctx.beginPath();
+			    ctx.moveTo(0,0);
+			    ctx.lineTo(TILE_SIZE, TILE_SIZE);
+			    ctx.moveTo(0, TILE_SIZE);
+			    ctx.lineTo(TILE_SIZE, 0);
+			    ctx.stroke();
+			}
+			else if (layer_marker =="fill") {
+			    //fill background
+			    ctx.globalAlpha=0.6;
+			    ctx.fillStyle="#" + user_defined_layers[layer_name].options.user_defined_layer_color;;
+			    ctx.fillRect(0,0,TILE_SIZE,TILE_SIZE);
+			}
+			else if (layer_marker=="explored") {
+			    ctx.font = "20px Arial";
+			    ctx.fillText("explored",TILE_SIZE/2, TILE_SIZE -21);
+			}
+			
+		    };
+		};
+	    };
+	    return canvas;
+
+	};
+	
+	
+	overlayLayers[layer_name] = user_defined_layers[layer_name];
+	var newDiv = 
+	    '<div><h3>' + layer_name + '</h3>' +
+		'<div>' + 
+		    'layer name: <span class="layer_name">' + layer_name +'</span><br />' + 
+		    'layer color: <span class="layer_color" >#' + layer_color + '</span><br />' +
+		    '<button class=" btn btn-default user_defined_layer_export_button">export to csv</button>' +
+		    '<button type="button" class="btn btn-default user_defined_layer_import_button">import from csv</button>' +
+		'</div>' + 
+	    '</div>';
+	$('#user_selection_layers').append(newDiv)
+	
+	$("button.user_defined_layer_export_button").click(function() {
+	    //console.log($(this).siblings(".layer_name").text());
+	    var export_layer_name = $(this).siblings(".layer_name").text();
+	    var json_export_object = {fields: ["som_x", "som_y", "mjd", "plate", "fiberid"], data: []};
+	    
+	    var number_of_export_objects = 0;
+	    // This is a very ugly counter
+	    $.each(user_defined_layers[export_layer_name].options.user_defined_layer_members, 
+		function(x, ys) {
+		    if (user_defined_layers[export_layer_name].options.user_defined_layer_members[x]) {
+			$.each(ys, function(y, is_selected) {
+			    if (user_defined_layers[export_layer_name].options.user_defined_layer_members[x][y]) {
+				number_of_export_objects = number_of_export_objects + 1;
+			    }
+			})
+		    }
+		});
+		
+	    $.each(user_defined_layers[export_layer_name].options.user_defined_layer_members, 
+		function(x, ys) {
+		    if (user_defined_layers[export_layer_name].options.user_defined_layer_members[x]) {
+			$.each(ys, function(y, is_selected) {
+			    if (is_selected) {
+				getAjax("./spec_meta/" + x + "/" + y, 
+				    function(data) { // success
+					var spec_meta_json = JSON.parse(data);
+					if (spec_meta_json.mjd && spec_meta_json.plate && spec_meta_json.fiberid && x >= 0 && x <= MAX_X && y >= 0 && y <= MAX_Y) {
+					    json_export_object.data.push([x,y,spec_meta_json.mjd.valueOf(), spec_meta_json.plate.valueOf(), spec_meta_json.fiberid.valueOf()]);
+					}
+					else {
+					    json_export_object.data.push([x,y,-1,-1,-1]);
+					}
+					if (json_export_object.data.length == number_of_export_objects) {
+					    //CSV-Export geklaut von http://jsfiddle.net/hybrid13i/JXrwM/
+					    //console.log(Papa.unparse(json_export_object));
+					    //Generate a file name
+					    var fileName = export_layer_name;
+					    
+					    //Initialize file format you want csv or xls
+					    var uri = 'data:text/csv;charset=utf-8,' + escape(Papa.unparse(json_export_object));
+					    
+					    
+					    // Now the little tricky part.
+					    // you can use either>> window.open(uri);
+					    // but this will not work in some browsers
+					    // or you will not get the correct file extension    
+					    
+					    //this trick will generate a temp <a /> tag
+					    var link = document.createElement("a");    
+					    link.href = uri;
+					    
+					    //set the visibility hidden so it will not effect on your web-layout
+					    link.style = "visibility:hidden";
+					    link.download = fileName + ".csv";
+					    
+					    //this part will append the anchor tag and remove it after automatic click
+					    document.body.appendChild(link);
+					    link.click();
+					    document.body.removeChild(link);
+					    
+					}
+				    
+				    },
+				    function() { // 404
+					json_export_object.data.push([x,y,-1,-1,-1]);
+					if (json_export_object.data.length == number_of_export_objects) {
+					    //CSV-Export geklaut von http://jsfiddle.net/hybrid13i/JXrwM/
+					    //console.log(Papa.unparse(json_export_object));
+					    //Generate a file name
+					    var fileName = export_layer_name;
+					    
+					    //Initialize file format you want csv or xls
+					    var uri = 'data:text/csv;charset=utf-8,' + escape(Papa.unparse(json_export_object));
+					    
+					    
+					    // Now the little tricky part.
+					    // you can use either>> window.open(uri);
+					    // but this will not work in some browsers
+					    // or you will not get the correct file extension    
+					    
+					    //this trick will generate a temp <a /> tag
+					    var link = document.createElement("a");    
+					    link.href = uri;
+					    
+					    //set the visibility hidden so it will not effect on your web-layout
+					    link.style = "visibility:hidden";
+					    link.download = fileName + ".csv";
+					    
+					    //this part will append the anchor tag and remove it after automatic click
+					    document.body.appendChild(link);
+					    link.click();
+					    document.body.removeChild(link);
+					    
+					}
+				    }
+				    
+				);
+
+				
+				
+				//~ $.ajax({
+				    //~ url: BASE_DIRECTORY + "/idmapping/" + x + "-" + y + ".json",
+				    //~ type: "GET",
+				    //~ dataType: "json",
+				    //~ async: false,
+				    //~ success: function(data) {
+					//~ if ( data.mjd && data.plateid && data.fiberid ) {
+					    //~ json_export_object.data.push([x,y,data.mjd.valueOf(), data.plateid.valueOf(), data.fiberid.valueOf()]);
+					//~ }
+					//~ else {
+					    //~ json_export_object.data.push([x,y,-1,-1,-1]);
+					//~ }
+	     
+				    //~ },
+				    //~ error: function(status) {
+					//~ json_export_object.data.push([x,y,-1,-1,-1]);
+				    //~ }
+				//~ });
+			    };
+			});
+		    };
+	    });
+
+
+	    
+	});
+	
+	$("button.user_defined_layer_import_button").click(function()  {
+	    var import_layer_name = $(this).siblings(".layer_name").text();
+	    dialog_csv_import.dialog("open");
+	});
+
+	LayerControl.addOverlay(user_defined_layers[layer_name], layer_name);
+    };
+		
+    $('#button_add_user_selection_layer').click( function() {
+	dialog_add_user_defined_selection_layer.dialog( "open" );
+	
+    });
+
+
+    var dialog_csv_import;
+    dialog_csv_import = $( "#dialog_csv_import" ).dialog({
+      autoOpen: false,
+      height: 300,
+      width: 350,
+      modal: true,
+      buttons: {
+	Import: importCSVtoUserDefinedLayer,
+	Cancel: function() {
+	  dialog_csv_import.dialog( "close" );
+	}
+      },
+      close: function() {
+	form_csv_input[ 0 ].reset();
+      }
+    });
+    var form_csv_input;
+    form_csv_input = dialog_csv_import.find( "form" ).on( "submit", function( event ) {
+	event.preventDefault();
+	
+    });
+		
+    var dialog_add_user_defined_selection_layer;
+    dialog_add_user_defined_selection_layer = $( "#dialog_add_user_defined_selection_layer" ).dialog({
+      autoOpen: false,
+      height: 300,
+      width: 350,
+      modal: true,
+      buttons: {
+	Add: addUserDefinedLayerByDialog,
+	Cancel: function() {
+	  dialog_add_user_defined_selection_layer.dialog( "close" );
+	}
+      },
+      close: function() {
+	form_add_user_defined_selection_layer[ 0 ].reset();
+      }
+    });
+    var form_add_user_defined_selection_layer;
+    form_add_user_defined_selection_layer = dialog_add_user_defined_selection_layer.find( "form" ).on( "submit", function( event ) {
+      event.preventDefault();
+      addUserDefinedLayerByDialog();
+    });
+    
+    var popup = L.popup();
+    
+    // Set coordinates for initial map center if requested by url parameters
+    if ( getQueryVariable('goto_x') && getQueryVariable('goto_y') ) {
+	var initial_map_center = new L.LatLng(
+	    tile2lat(getQueryVariable('goto_x'), MAX_ZOOM), 
+	    tile2long(getQueryVariable('goto_y'), MAX_ZOOM)
+	)
+    }
+    else  {
+	var initial_map_center = new L.LatLng(tile2lat(MAX_X / 2, MAX_ZOOM), tile2long(MAX_Y / 2, MAX_ZOOM));
+    }
+    
+    var map = new L.Map('map', {
+	    center: initial_map_center,
+	    minZoom: Math.max(0, MAX_ZOOM - 10),
+	    maxZoom: MAX_ZOOM,
+	    zoom: MAX_ZOOM,
+    });
+    map.attributionControl.setPrefix('<a href="http://aspect-ui.de/" target="_blank">ASPECT-ui</a>');
+
+
+
+
+    function onMapClick(e) {
+	var som_x = String(long2tile(e.latlng.lng, MAX_ZOOM));
+	var som_y = String(lat2tile(e.latlng.lat, MAX_ZOOM));
+	var SOM_keys = [{'som_x':som_x,'som_y':som_y}];
+
+
+	getAjax("./spec_meta/" + som_x + "/" + som_y, 
+	    function(data) { // success
+		var spec_meta_json = JSON.parse(data);
+
+		if (spec_meta_json.mjd != 0 && spec_meta_json.plate != 0 && spec_meta_json.fiberid != 0 && som_x >= 0 && som_x <= MAX_X && som_y >= 0 && som_y <= MAX_Y) {
+			var sdss_link = 
+			    '<a id="a_sdsslink" href="http://skyserver.sdss.org/dr12/en/tools/explore/summary.aspx?plate=' + spec_meta_json.plate + '&mjd=' + spec_meta_json.mjd + '&fiber=' + spec_meta_json.fiberid 
+				+ '" target="_blank">Explore</a>'
+			var zshift_link = 
+			    '| <a id="a_zshiftlink" href="https://aspect-ui.de/zshift/zshift.html?mjd=' + spec_meta_json.mjd + '&fiber=' + spec_meta_json.fiberid + '&plateid=' + spec_meta_json.plate
+			    + '" target="_blank">zshift</a>'
+
+			    var mpf = spec_meta_json.mjd + "-" + spec_meta_json.plate + "-" + spec_meta_json.fiberid
+			    var popupstring = "X: " + som_x +", Y: " + som_y + ",<br />MJD-Plate-Fiberid: " + mpf + ",<br />" + sdss_link + zshift_link
+
+		    }
+		    else {
+			var popupstring="X: " + som_x + ", Y: " + som_y + " ~ Here be dragons!"
+		    }
+		    popup
+			.setLatLng(e.latlng)
+			.setContent(popupstring)
+			.openOn(map);
+	    
+	    },
+	    function() { // 404
+		var popupstring="X: " + som_x + ", Y: " + som_y + " ~ Here be dragons!"
+		popup
+		    .setLatLng(e.latlng)
+		    .setContent(popupstring)
+		    .openOn(map);
+	    }
+	);
+	
+    };
+
+
+
+    map.on('click', onMapClick);
+
+
+
+    mousePositionControl = new L.control.mousePosition({lngFormatter: function(lng) { return long2tile(lng, MAX_ZOOM)}, latFormatter: function(lat) {return lat2tile(lat, MAX_ZOOM)}, lngFirst: true});
+    mousePositionControl.addTo(map);
+
+//the selectors
+
+    var selectors = new L.FeatureGroup();
+    L.drawLocal.draw.handlers.rectangle.tooltip.start = 'select';
+    //L.drawLocal.draw.handlers.rectangle.tooltip.remove();
+    
+    var selectorControl = new L.Control.Draw({
+	edit: {
+	    featureGroup: selectors
+	},
+	draw: {
+	    polyline: false,
+	    polygon: false,
+	    rectangle: { repeatMode: true },
+	    circle: false,
+	    marker: { repeatMode: true, icon: L.icon({iconUrl: './map/images/empty_icon.png'})}
+	},
+	edit:false
+    });
+    map.addControl(selectorControl);            
+
+    map.on('draw:created', function (e) {
+	var type = e.layerType,
+	    layer = e.layer;
+	
+	if (type === 'rectangle') {
+	    var user_selection_layer_name = get_active_user_selection_layer_name();
+	//Ja, das ist richtig so, dass minx=MAX_X und so weiter ist.
+	    var minx = MAX_X;
+	    var miny = MAX_Y;
+	    var maxx = MIN_X;
+	    var maxy = MIN_Y;
+	    for (var i = 0; i<=3; i++) {
+		var apoint = layer._latlngs[0][i];
+		var x=long2tile(apoint["lng"],MAX_ZOOM);
+		var y=lat2tile(apoint["lat"],MAX_ZOOM);
+		if (x < minx) { minx = x };
+		if (x >= maxx) { maxx = x };
+		if (y < miny) { miny = y };
+		if (y >= maxy) { maxy = y };
+	    }	
+	    if (minx < MIN_X ) { minx = MIN_X };
+	    if (miny < MIN_Y ) { miny = MIN_Y };
+
+	    for (var x=minx;x<=maxx;x++) {
+		for (var y=miny;y<=maxy;y++) {
+		    if (user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x]) {
+			if (user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y]) {
+			    delete user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y];
+			}
+			else user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+		    }
+		    else {
+			user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x] = [];
+			//FIXME: doppelter code, siehe ein paar Zeilen vorher
+			user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y] = true;					    
+		    };
+		};
+	    };
+
+
+	};
+	
+	if (type === 'marker') {
+	    apoint=layer._latlng;
+	    var x=long2tile(apoint["lng"],MAX_ZOOM);
+	    var y=lat2tile(apoint["lat"],MAX_ZOOM);
+	    
+	    var user_selection_layer_name = 'default';
+	    var active_user_selection_layer_number = $( "#user_selection_layers" ).accordion( "option", "active" );
+	    var active_user_selection_layer = $( "#user_selection_layers > div > div > .layer_name")[active_user_selection_layer_number];
+	    user_selection_layer_name = $(active_user_selection_layer).text();
+	    
+
+	    if (x >= MIN_X && x <= MAX_X && y >= MIN_Y && y <= MAX_Y) {
+		//<FIXME> Doppelter Code (siehe bei rectangle)
+		if (user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x]) {
+		    if (user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y]) {
+			delete user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y];
+		    }
+		    else user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+		}
+		else {
+		    user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x] = [];
+		    user_defined_layers[user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+		};
+		//</FIXME>
+	    };
+	};
+	if ( map.hasLayer(user_defined_layers[user_selection_layer_name]) ) {
+	    user_defined_layers[user_selection_layer_name].redraw();
+	};
+
+    });
+
+
+//end the selectors
+    progress_layer.addTo(map);
+    spec_exist_layer.addTo(map);
+    spectra_layer.addTo(map);
+
+    overlayLayers['spectra icons'] = spectra_layer;
+    var baseLayers = {
+	"colored background": spec_exist_layer,
+	"redshift": spec_redshift_layer,
+	"SN median": spec_sn_median_layer,
+	"Spec classification": spec_class_layer,
+    };
+
+
+    var LayerControl = new L.control.layers(
+	baseLayers, 
+	overlayLayers, 
+	{
+	    collapsed: true,
+	    autoZIndex: false
+	}
+    ).addTo(map);	
+    addUserDefinedLayer('default selections', '#000000', 'line');
+    addUserDefinedLayer('Explorer Click', '#ff0000', 'explored');
+
+    
+    
+
+
+//<user interface>
+		
+      $(function() {
+	$( "#user_selection_layers" ).accordion({
+	  collapsible: false,
+	  header: "> div > h3"
+	});
+      });
+      
+
+
+    $("#set_spectrum_foreground_color_button").click(function() {
+	//~ var color_to_set = $("#foreground_color_input_field").val()
+	//~ if (color_to_set == "" ) {
+	    //~ $("#foreground_color_input_field").css("background-color", $("#foreground_color_input_field").attr("placeholder"));
+	//~ }
+	//~ else {
+	    //~ $("#foreground_color_input_field").css("background-color", $("#foreground_color_input_field").val())
+	//~ }
+	
+	//~ // determine lightness of the input fields background color and change font color accordingly
+	//~ var rgb_background = $("#foreground_color_input_field").css("background-color").replace(/^rgba?\(|\s+|\)$/g,'').split(',');
+	//~ var c=0
+	//~ for (i=0; i<3; i++) {
+	    //~ c = rgb_background[i] /255.0
+	    //~ if ( c <= 0.03928) c = c/12.92 
+	    //~ else c = Math.pow((c+0.055)/1.055, 2.4)
+	    //~ rgb_background[i] = c
+	//~ }
+	//~ var L = 0.2126 * rgb_background[0] + 0.7152 * rgb_background[1] + 0.0722 * rgb_background[2]
+	//~ if (L > 0.179) $("#foreground_color_input_field").css("color", "black")
+	//~ else $("#foreground_color_input_field").css("color", "white")
+	
+	if ( map.hasLayer(spectra_layer) ) {
+	    map.removeLayer(spectra_layer)
+	    map.addLayer(spectra_layer)
+	}
+	
+    }); 
+    $("#set_spectrum_background_color_button").click(function() {
+	//~ var color_to_set = $("#background_color_input_field").val()
+	//~ if (color_to_set == "" ) {
+	    //~ $("#background_color_input_field").css("background-color", $("#background_color_input_field").attr("placeholder"));
+	//~ }
+	//~ else {
+	    //~ $("#background_color_input_field").css("background-color", $("#background_color_input_field").val())
+	//~ }
+
+	//~ // determine lightness of the input fields background color and change font color accordingly
+	//~ var rgb_background = $("#background_color_input_field").css("background-color").replace(/^rgba?\(|\s+|\)$/g,'').split(',');
+	//~ var c=0
+	//~ for (i=0; i<3; i++) {
+	    //~ c = rgb_background[i] /255.0
+	    //~ if ( c <= 0.03928) c = c/12.92 
+	    //~ else c = Math.pow((c+0.055)/1.055, 2.4)
+	    //~ rgb_background[i] = c
+	//~ }
+	//~ var L = 0.2126 * rgb_background[0] + 0.7152 * rgb_background[1] + 0.0722 * rgb_background[2]
+	//~ if (L > 0.179) $("#background_color_input_field").css("color", "black")
+	//~ else $("#background_color_input_field").css("color", "white")
+
+
+	if ( map.hasLayer(spec_exist_layer) ) {
+	    map.removeLayer(spec_exist_layer)
+	    map.addLayer(spec_exist_layer)
+	}
+    });
+
+    $("#goto_map_coordinate_button").click(function() {
+	var xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).val() );
+	if (xy_array.data.length == 0) {
+	    xy_array = Papa.parse( $( "#goto_map_coordinate_input" ).attr("placeholder") );
+	    map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+	}
+	else if(xy_array.data[0] && xy_array.data[0].length == 2) {
+	    map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+	}
+    });
+
+    $( "#goto_map_coordinate_input_form" ).keypress(function( event ) {
+	if ( event.which == 13 ) {
+	    var xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).val() );
+	    if (xy_array.data.length == 0) {
+		xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).attr("placeholder") );
+		map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+		return false;
+	    }
+	    else if(xy_array.data[0] && xy_array.data[0].length == 2) {
+		map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+		return false;
+	    }        
+	}
+    });
+
+
+//</user interface>		
+		
+});
+
+
+
+</script>
+
+
+</head>
+<body>
+
+    <nav class="navbar navbar-inverse navbar-fixed-top">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <a class="navbar-brand" id="pagetitle" href="/">An interactive Spectra Map</a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+            <li><a href="http://aspect-ui.de/">About</a></li>
+            <li><a href="http://aspect-ui.de/contact/">Contact</a></li>
+          </ul>
+          
+          <form class="navbar-form navbar-right" id="goto_map_coordinate_input_form">
+            <input type="text" class="form-control" placeholder="100, 200" id="goto_map_coordinate_input">
+            <button type="button" class="btn btn-default" id="goto_map_coordinate_button">Go!</button>
+          </form>
+
+        </div>
+      </div>
+    </nav>
+
+    <div class="container-fluid" id="sidebarcontainer">
+      <div class="row">
+        <div class="col-sm-3 col-md-2 sidebar">
+
+            <div class="panel-group" id="spectra_coloring_panel" role="tablist" aria-multiselectable="true">
+              <div class="panel panel-default">
+                <div class="panel-heading" role="tab" id="headingOne">
+                  <h4 class="panel-title">
+                    <a data-toggle="collapse" data-parent="#spectra_coloring_panel" href="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                      Spectra Coloring
+                    </a>
+                  </h4>
+                </div>
+                
+                <div id="collapseOne" class="panel-collapse collapse in" role="tabpanel" aria-labelledby="headingOne">
+                  <div class="panel-body">
+                    <h5>foreground color</h5>
+                    <div class="input-group input-group-sm">
+                      <input type="text" class="form-control jscolor" id="foreground_color_input_field" value="4d4d4d">
+                      <div class="input-group-btn">
+
+                        <button class="btn btn-default" type="button" id="set_spectrum_foreground_color_button">Set!</button>
+                      </div><!-- /btn-group -->
+                    </div><!-- /input-group -->
+                    <h5>background color</h5>
+                    <div class="input-group input-group-sm">
+                      <input type="text" class="form-control jscolor" id="background_color_input_field" value="ffff00">
+
+                      <div class="input-group-btn">
+                        
+                        <button class="btn btn-default" type="button" id="set_spectrum_background_color_button">Set!</button>
+
+                      </div><!-- /btn-group -->
+                    </div><!-- /input-group -->                 
+                      
+
+                  </div>
+                </div>
+              </div>
+            </div>   
+            
+
+            <div class="panel-group" id="user_selection_layer_group" role="tablist" aria-multiselectable="true">
+              <div class="panel panel-default">
+                <div class="panel-heading" role="tab" id="headingTwo">
+                  <h4 class="panel-title">
+                    <a data-toggle="collapse2" data-parent="#user_selection_layer_group" href="#" aria-expanded="false">
+                      User selection layer
+                    </a>
+                  </h4>
+                </div>
+		<div id="user_selection_layers">
+		</div>
+		<button type="button" class="btn btn-primary" id="button_add_user_selection_layer" >add layer</button>
+
+              </div>
+            </div> 
+            
+        </div>
+	
+	<div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 main" id="mapcontainer">
+	    <div id="map" class="map"></div>
+	</div>
+      </div>
+
+
+
+    </div>
+
+<div id="dialog_add_user_defined_selection_layer" title="Add new selection layer2">
+  <p class="validateTips">All form fields are required.</p>
+ 
+  <form>
+    <fieldset>
+      <label for="user_defined_selection_layer_name">layer name</label>
+      <input type="text" name="user_defined_selection_layer_name" id="user_defined_selection_layer_name" value="" class="text ui-widget-content ui-corner-all">
+      <label for="user_defined_selection_layer_color">layer color</label>
+      <input type="text" name="user_defined_selection_layer_color" id="user_defined_selection_layer_color" value="ff0000" class="text ui-widget-content ui-corner-all jscolor">
+      <!-- Allow form submission with keyboard without duplicating the dialog button -->
+      <input type="submit" tabindex="-1" style="position:absolute; top:-1000px">
+    </fieldset>
+  </form>
+</div>
+
+<div id="dialog_csv_import" title="Import CSV to user defined selection">
+  <p class="validateTips">All form fields are required.</p>
+ 
+  <form>
+    <fieldset>
+	<label for="csv_import_textarea">csv data</label>
+	<textarea class="form-control" name="csv_import_textarea" id="csv_import_textarea" rows="3" placeholder="paste csv data here"></textarea>
+
+      <!-- Allow form submission with keyboard without duplicating the dialog button -->
+      <input type="submit" tabindex="-1" style="position:absolute; top:-1000px">
+    </fieldset>
+  </form>
+</div>
+
+
+
+
+</body>
+
+</html>
