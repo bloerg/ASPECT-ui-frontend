@@ -17,6 +17,7 @@
     <script src="./map/js/L.Control.MousePosition.js"></script>
     <script src="./map/js/leaflet-sidebar.js"></script>
     <script src="./map/js/helper_functions.js"></script>
+    <script src="./map/js/plain.js"></script>
     <script src="./map/js/spectrahandlingfunctions.js"></script>
     <script src="./map/js/papaparse.min.js"></script>
     <script src="./map/js/color_helpers.js"></script>
@@ -64,20 +65,19 @@
 		    line-height:40px;
 	    }
 	    
+<!--
 	    .leaflet-draw-tooltip {
 		    display: none;
 	    }
+-->
 	    
-<!--
 	    body {
 		padding: 0;
 		margin: 0;
 	    }
--->
 	    
 	    body, html, #map {
-	    height: 100%;
-		font: 10pt "Helvetica Neue", Arial, Helvetica, sans-serif;
+		height: 100%;
 	    }
 	    
 	    
@@ -99,6 +99,36 @@
 	    .ui-front { z-index: 1000 !important; }
 	    .ui-dialog { z-index: 1001 !important ;}
 
+	    #map {
+		left:0;
+		right:0;
+		bottom:0;
+		top:0;
+		position:absolute;
+	    }
+        
+        
+        #objectTable table {
+            border-collapse: collapse;
+        }
+        #objectTable th, td {
+            border: 1px solid gray;
+        }
+        #objectTable th {
+            background-color: lightgrey;
+            border-width: 1px;
+        }
+        #objectTable td {
+            border-width: 1px;
+        }
+        #objectTable tbody tr:hover {
+            background-color:#1a1a1a;
+            color:white;
+        }
+        #objectTable tr:first-child td {
+            border-top-width: 0;
+        }
+
 	    
     </style>
     
@@ -118,7 +148,9 @@
             <ul role="tablist">
                 <li><a href="#map_info" role="tab"><i class="fa fa-info-circle"></i></a></li>
                 <li><a href="#spectra_icon_adjust" role="tab"><i class="fa fa-area-chart"></i></a></li>
-		<li><a href="#user_defined_layers" role="tab"><i class="fa fa-bars"></i></a></li>
+                <li><a href="#user_defined_layers" role="tab"><i class="fa fa-bars"></i></a></li>
+                <li><a href="#object_table" role="tab"><i class="fa fa-table"></i></a></li>
+
 <!--                <li><a href="#import" role="tab"><i class="fa fa-upload"></i></a></li> -->
             </ul>
 
@@ -165,6 +197,26 @@
 		<button type="button" class="btn btn-primary" id="button_add_user_selection_layer" >add layer</button>
 
 	    </div>
+	    
+            <div class="sidebar-pane" id="object_table">
+                <h1 class="sidebar-header">Object Table<span class="sidebar-close"><i class="fa fa-caret-left"></i></span></h1>
+                <div style="margin-top: 10px;">
+                    <input type="file" name="objectTableImportInput" id="objectTableImportInput" onchange="importObjectList(this.files)" />
+        <!--
+                    <label for="objectTableImportInput">Choose a csv file</label>
+    -->
+                </div>
+                <div style="margin-top: 10px;">
+                <table id='objectTable'>
+                    <thead>
+                        <tr><th>index</th><th>name</th><th>som_x</th><th>som_y</th><th>mjd</th><th>plate</th><th>fiberid</th></tr>
+                    </thead>
+                    <tbody id='objectTableBody'>
+
+                    </tbody>
+                </table>
+                </div>
+            </div>
 
             <div class="sidebar-pane" id="messages">
                 <h1 class="sidebar-header">Messages<span class="sidebar-close"><i class="fa fa-caret-left"></i></span></h1>
@@ -270,17 +322,6 @@
       return new Promise(resolve => setTimeout(resolve, ms));
     };
 
-    function getAjax(url, success, not_found) {
-	var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject('Microsoft.XMLHTTP');
-	xhr.open('GET', url);
-	xhr.onreadystatechange = function() {
-	    if (xhr.readyState>3 && xhr.status==200) success(xhr.responseText);
-	    if (xhr.readyState>3 && xhr.status==404) not_found();
-	};
-	xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-	xhr.send();
-	return xhr;
-    }
 
     //Function to obtain parameters from URL
     //taken from https://css-tricks.com/snippets/javascript/get-url-variables/
@@ -1187,7 +1228,7 @@
 	    minZoom: Math.max(0, MAX_ZOOM - 10),
 	    maxZoom: MAX_ZOOM,
 	    zoom: MAX_ZOOM,
-	    maxBounds: mapbounds
+	    //~ maxBounds: mapbounds
     });
     map.attributionControl.setPrefix('<a href="http://aspect-ui.de/" target="_blank">ASPECT-ui</a>');
 
@@ -1428,11 +1469,8 @@
 //</user interface>		
 		
 
-
-
-
 </script>
 </body>
 
 </html>
-A
+
