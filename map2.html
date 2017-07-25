@@ -22,6 +22,7 @@
     <script src="./map/js/papaparse.min.js"></script>
     <script src="./map/js/color_helpers.js"></script>
     <script src="./map/js/jscolor.js"></script>
+    <script src="./map/js/Leaflet.Control.Custom.js"></script>
 
         
 
@@ -280,29 +281,35 @@
     async: false,
     success: function(data) {
         if ( data.max_zoom) {
-        MAX_ZOOM = data.max_zoom
+            MAX_ZOOM = data.max_zoom
         }
         if ( data.tile_size) {
-        TILE_SIZE = data.tile_size
+            TILE_SIZE = data.tile_size
         }
         if ( data.min_x) {
-        MIN_X = data.min_x
+            MIN_X = data.min_x
         }
         if ( data.max_x) {
-        MAX_X = data.max_x
+            MAX_X = data.max_x
         }
         if ( data.min_y) {
-        MIN_Y = data.min_y
+            MIN_Y = data.min_y
         }
         if ( data.max_y) {
-        MAX_Y = data.max_y
+            MAX_Y = data.max_y
+        }
+        if ( data.max_redshift) {
+            MAX_REDSHIFT = Math.min(2, data.max_redshift)
+        }
+        if ( data.min_redshift) {
+            MIN_REDSHIFT = Math.max(0, data.min_redshift)
         }
         if ( data.page_title) {
-        document.querySelector('#map_description').innerHTML = '<h4>' + data.page_title + '</h4>';
+            document.querySelector('#map_description').innerHTML = '<h4>' + data.page_title + '</h4>';
         }
         if ( data.base_directory) {
-        BASE_DIRECTORY = data.base_directory
-    }
+            BASE_DIRECTORY = data.base_directory
+        }
 
     },
         error: function(status) {
@@ -538,6 +545,14 @@
         zIndex:20
     });
 
+    spec_redshift_layer.on('add', function() {
+        redshift_color_scale.addTo(map);
+    });
+    
+    spec_redshift_layer.on('remove', function() {
+        redshift_color_scale.remove();
+    });
+    
 
     spec_redshift_layer.createTile = function(tilePoint) {
         var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
@@ -1383,21 +1398,21 @@
 
     overlayLayers['spectra icons'] = spectra_layer;
     var baseLayers = {
-	"colored background": spec_exist_layer,
-	"redshift": spec_redshift_layer,
-	"SN median": spec_sn_median_layer,
-	"Spec classification": spec_class_layer,
+        "colored background": spec_exist_layer,
+        "redshift": spec_redshift_layer,
+        "SN median": spec_sn_median_layer,
+        "Spec classification": spec_class_layer,
     };
 
 
     var LayerControl = new L.control.layers(
-	baseLayers, 
-	overlayLayers, 
-	{
-	    collapsed: true,
-	    autoZIndex: false
-	}
-    ).addTo(map);	
+        baseLayers, 
+        overlayLayers, 
+        {
+            collapsed: true,
+            autoZIndex: false
+        }
+    ).addTo(map);
     addUserDefinedLayer('default selections', '#000000', 'line');
     addUserDefinedLayer('Explorer Click', '#ff0000', 'explored');
 
@@ -1407,56 +1422,78 @@
 
 //<user interface>
 		
-      $(function() {
-	$( "#user_selection_layers" ).accordion({
-	  collapsible: false,
-	  header: "> div > h3",
-	  heightStyle: "content"
-	});
-      });
+    $(function() {
+        $( "#user_selection_layers" ).accordion({
+          collapsible: false,
+          header: "> div > h3",
+          heightStyle: "content"
+        });
+    });
       
 
 
     function change_spectra_plot_color() {
-	if ( map.hasLayer(spectra_layer) ) {
-	    map.removeLayer(spectra_layer)
-	    map.addLayer(spectra_layer)
-	}
-	
+        if ( map.hasLayer(spectra_layer) ) {
+            map.removeLayer(spectra_layer)
+            map.addLayer(spectra_layer)
+    }
+    
     }; 
     function change_spectra_background_color() {
-	if ( map.hasLayer(spec_exist_layer) ) {
-	    map.removeLayer(spec_exist_layer)
-	    map.addLayer(spec_exist_layer)
-	}
+        if ( map.hasLayer(spec_exist_layer) ) {
+            map.removeLayer(spec_exist_layer)
+            map.addLayer(spec_exist_layer)
+        }
     };
 
     $("#goto_map_coordinate_button").click(function() {
-	var xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).val() );
-	if (xy_array.data.length == 0) {
-	    xy_array = Papa.parse( $( "#goto_map_coordinate_input" ).attr("placeholder") );
-	    map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
-	}
-	else if(xy_array.data[0] && xy_array.data[0].length == 2) {
-	    map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
-	}
+        var xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).val() );
+        if (xy_array.data.length == 0) {
+            xy_array = Papa.parse( $( "#goto_map_coordinate_input" ).attr("placeholder") );
+            map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+        }
+        else if(xy_array.data[0] && xy_array.data[0].length == 2) {
+            map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+        }
     });
 
     $( "#goto_map_coordinate_input_form" ).keypress(function( event ) {
-	if ( event.which == 13 ) {
-	    var xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).val() );
-	    if (xy_array.data.length == 0) {
-		xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).attr("placeholder") );
-		map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
-		return false;
-	    }
-	    else if(xy_array.data[0] && xy_array.data[0].length == 2) {
-		map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
-		return false;
-	    }        
-	}
+        if ( event.which == 13 ) {
+            var xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).val() );
+            if (xy_array.data.length == 0) {
+                xy_array=Papa.parse( $( "#goto_map_coordinate_input" ).attr("placeholder") );
+                map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+                return false;
+            }
+            else if(xy_array.data[0] && xy_array.data[0].length == 2) {
+                map.panTo( new L.LatLng( tile2lat(xy_array.data[0][1],MAX_ZOOM), tile2long(xy_array.data[0][0],MAX_ZOOM) ) );
+                return false;
+            }        
+        }
     });
 
+    var redshift_color_scale = L.control.custom({
+        position: 'bottomright',
+        content: '<div style="background: white; height:50px; width:256px;overflow:hidden;position:relative; display:block; border-top:5">' +
+                    '<div style="margin-top:3px; top:0; left:0; height: 30px; width:100%; background: linear-gradient(to right, red, orange, yellow, green, blue, violet);"></div>' +
+                    '<span style="margin-left: 3px; float:left; top:0; height: 20px; width:9%">' + MIN_REDSHIFT + '</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">1</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">3</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">4</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">5</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">6</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">7</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:10%">8</span>'+
+
+                    '<span style="float:left; top:0; height: 20px; width:10%">' + MAX_REDSHIFT + '</span>'+
+                  '</div>',
+        classes : '',
+        style   :
+        {
+            margin: '5px 20px',
+            padding: '0px',
+        },
+    });
 
 //</user interface>		
 		
