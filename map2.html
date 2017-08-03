@@ -166,7 +166,15 @@
                     Map related information.
                     <span class="sidebar-close"><i class="fa fa-caret-left"></i></span>
                 </h1>
-                <span id="map_description"><h4>An interactive spectra map.</h4></span>
+                <span id="meta_map_description"><h4>An interactive spectra map.</h4></span>
+
+
+                <div style="border-top-style: solid">
+                    <p>Minimum redshift: <span id="meta_min_redshift">0</span></p>
+                    <p>Maximum redshift: <span id="meta_max_redshift">0</span></p>
+                    <p>Redshift interval mapped in redshift layer: <span id="meta_mapped_redshift_interval">[0,0]</span></p>
+                    <p>SOM Dimensions: <span id="meta_som_dimensions">0 by 0 (0)</span> spectra tiles</p>
+                </div>
 
                 <div style="border-top-style: solid">
                     <h4><a href="http://aspect-ui.de/">About</a></h4>
@@ -275,46 +283,50 @@
     PAGE_TITLE = "A Spectra Map";
     BASE_DIRECTORY = "./";
     $.ajax({
-    url: "./config.json",
-    type: "GET",
-    dataType: "json",
-    async: false,
-    success: function(data) {
-        if ( data.max_zoom) {
-            MAX_ZOOM = data.max_zoom
-        }
-        if ( data.tile_size) {
-            TILE_SIZE = data.tile_size
-        }
-        if ( data.min_x) {
-            MIN_X = data.min_x
-        }
-        if ( data.max_x) {
-            MAX_X = data.max_x
-        }
-        if ( data.min_y) {
-            MIN_Y = data.min_y
-        }
-        if ( data.max_y) {
-            MAX_Y = data.max_y
-        }
-        if ( data.max_redshift) {
-            MAX_REDSHIFT = Math.min(2, data.max_redshift)
-        }
-        if ( data.min_redshift) {
-            MIN_REDSHIFT = Math.max(0, data.min_redshift)
-        }
-        if ( data.page_title) {
-            document.querySelector('#map_description').innerHTML = '<h4>' + data.page_title + '</h4>';
-        }
-        if ( data.base_directory) {
-            BASE_DIRECTORY = data.base_directory
-        }
+        url: "./config.json",
+        type: "GET",
+        dataType: "json",
+        async: false,
+        success: function(data) {
+            if ( data.max_zoom) {
+                MAX_ZOOM = data.max_zoom
+            }
+            if ( data.tile_size) {
+                TILE_SIZE = data.tile_size
+            }
+            if ( data.min_x) {
+                MIN_X = data.min_x
+            }
+            if ( data.max_x) {
+                MAX_X = data.max_x
+            }
+            if ( data.min_y) {
+                MIN_Y = data.min_y
+            }
+            if ( data.max_y) {
+                MAX_Y = data.max_y
+            }
+            if ( data.max_redshift) {
+                MAX_REDSHIFT = Math.min(1, data.max_redshift)
+                document.querySelector('#meta_max_redshift').innerHTML = Math.round(data.max_redshift * 1000) / 1000;
+            }
+            if ( data.min_redshift) {
+                MIN_REDSHIFT = Math.max(0, data.min_redshift)
+                document.querySelector('#meta_min_redshift').innerHTML = Math.round(data.min_redshift * 1000) / 1000;
+                document.querySelector('#meta_mapped_redshift_interval').innerHTML = '[' + MIN_REDSHIFT + ', ' + MAX_REDSHIFT + ']';
+            }
+            if ( data.page_title) {
+                document.querySelector('#meta_map_description').innerHTML = '<h4>' + data.page_title + '</h4>';
+            }
+            if ( data.base_directory) {
+                BASE_DIRECTORY = data.base_directory
+            }
+            document.querySelector('#meta_som_dimensions').innerHTML = MAX_X + ' by ' + MAX_Y + ' (' + MAX_X * MAX_Y + ')';
 
-    },
-        error: function(status) {
-            console.log(status);
-        }
+        },
+            error: function(status) {
+                console.log(status);
+            }
     });
     
     function sleep(ms) {
@@ -340,68 +352,21 @@
 
 
     //map bounds
-    var lefttop = L.latLng(tile2lat(MIN_Y - 50,MAX_ZOOM), tile2long(MIN_X - 50 ,MAX_ZOOM)),
-        rightbottom = L.latLng(tile2lat(MAX_Y + 50, MAX_ZOOM), tile2long(MAX_X + 50 , MAX_ZOOM)),
+    var lefttop = L.latLng(tile2lat(MIN_Y, MAX_ZOOM), tile2long(MIN_X, MAX_ZOOM)),
+        rightbottom = L.latLng(tile2lat(MAX_Y, MAX_ZOOM), tile2long(MAX_X , MAX_ZOOM)),
         mapbounds = L.latLngBounds(lefttop, rightbottom);
 
     var overlayLayers = new Object();
     var user_defined_layers = new Object();
 
 
-    var ProgressLayer = L.GridLayer.extend({
-        createTile: function(coords){
-            // create a <canvas> element for drawing
-            var tile = L.DomUtil.create('div', 'leaflet-tile-progress_' + coords.x + '_' + coords.y + '_' + coords.z);
-            // setup tile width and height according to the options
-            var size = this.getTileSize();
-            tile.width = size.x;
-            tile.height = size.y;
-
-            //spinner
-            var opts = {
-              lines: 13 // The number of lines to draw
-            , length: 28 // The length of each line
-            , width: 14 // The line thickness
-            , radius: 42 // The radius of the inner circle
-            , scale: 1 // Scales overall size of the spinner
-            , corners: 1 // Corner roundness (0..1)
-            , color: '#' + document.querySelector('#foreground_color_input_field').value
-            , opacity: 0.25 // Opacity of the lines
-            , rotate: 0 // The rotation offset
-            , direction: -1 // 1: clockwise, -1: counterclockwise
-            , speed: 1 // Rounds per second
-            , trail: 60 // Afterglow percentage
-            , fps: 20 // Frames per second when using setTimeout() as a fallback for CSS
-            , zIndex: 2e9 // The z-index (defaults to 2000000000)
-            , className: 'spinner' // The CSS class to assign to the spinner
-            , top: '50%' // Top position relative to parent
-            , left: '50%' // Left position relative to parent
-            , shadow: false // Whether to render a shadow
-            , hwaccel: true // Whether to use hardware acceleration
-            , position: 'absolute' // Element positioning
-            }
-            var spinner = new Spinner(opts).spin(tile);
-
-            // return the tile so it can be rendered on screen
-            return tile;
-        }
-    });
-
-    var progress_layer = new ProgressLayer({
-        maxZoom: MAX_ZOOM,
-        minZoom: Math.max(0, MAX_ZOOM - 2),
-        tileSize: TILE_SIZE,
-        unloadInvisibleTiles: true,
-        noWrap: true,
-        zIndex:31
-        });
-
-        var spectra_layer = new L.GridLayer({
+    var spectra_layer = new L.GridLayer({
         maxZoom: MAX_ZOOM,
         minZoom: Math.max(0, MAX_ZOOM - 2),
         tileSize: TILE_SIZE,	
         unloadInvisibleTiles: true,
         noWrap: true,
+        bounds: mapbounds,
         zIndex: 30
     });
 
@@ -430,8 +395,6 @@
                     }
                 }
                 ctx.putImageData(spectrum_image, 0, 0)
-                // remove spinner
-                document.querySelector("div.leaflet-tile-progress_" + tilePoint.x + "_" + tilePoint.y + "_" + tilePoint.z + ".leaflet-tile.leaflet-tile-loaded").style.display='none';
             };
             spectrum_image.src = url;
 
@@ -479,7 +442,7 @@
 	canvas.width = TILE_SIZE;
 	canvas.height = TILE_SIZE;
 	var zoom = tilePoint.z;
-	if (tilePoint.x >= 0 && tilePoint.y >= 0) {
+	if (tilePoint.x >= 0 && tilePoint.y >= 0 && tilePoint.x < MAX_X && tilePoint.y < MAX_Y) {
 	    var ctx = canvas.getContext('2d');
 	    
 	    var show_tile = function(canvas, Arr_exists, zoom) {
@@ -537,7 +500,7 @@
 
    var spec_redshift_layer = new L.GridLayer({
         maxZoom: MAX_ZOOM,
-        minZoom: 2,
+        minZoom: Math.max(0, MAX_ZOOM - 8),
         tileSize: TILE_SIZE,
         unloadInvisibleTiles: false,
         nowrap: true,
@@ -614,7 +577,7 @@
 
    var spec_class_layer = new L.GridLayer({
         maxZoom: MAX_ZOOM,
-        minZoom: 2,
+        minZoom: Math.max(0, MAX_ZOOM - 8),
         tileSize: TILE_SIZE,
         unloadInvisibleTiles: false,
         nowrap: true,
@@ -622,6 +585,14 @@
         zIndex:20
     });
 
+
+    spec_class_layer.on('add', function() {
+        spec_class_color_scale.addTo(map);
+    });
+    
+    spec_class_layer.on('remove', function() {
+        spec_class_color_scale.remove();
+    });
 
     spec_class_layer.createTile = function(tilePoint) {
     var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
@@ -683,7 +654,7 @@
 
     var spec_sn_median_layer = new L.GridLayer({
         maxZoom: MAX_ZOOM,
-        minZoom: 2,
+        minZoom: Math.max(0, MAX_ZOOM - 8),
         tileSize: TILE_SIZE,
         unloadInvisibleTiles: false,
         nowrap: true,
@@ -691,6 +662,14 @@
         zIndex:20
     });
 
+    spec_sn_median_layer.on('add', function() {
+        sn_color_scale.addTo(map);
+    });
+    
+    spec_sn_median_layer.on('remove', function() {
+        sn_color_scale.remove();
+    });
+    
 
     spec_sn_median_layer.createTile = function(tilePoint) {
         var canvas = L.DomUtil.create('canvas', 'leaflet-tile');
@@ -716,7 +695,7 @@
                             var sub_x = i % num_subtiles
                             var sub_y = Math.floor( i / num_subtiles)
                         
-                            ctx.fillStyle = sn_median_to_color(MIN_REDSHIFT, MAX_REDSHIFT, Arr_sn_medians[i]);
+                            ctx.fillStyle = sn_median_to_color(10, 40, Arr_sn_medians[i]);
                             
                             //~ }
                             // more efficient drawing when many subtiles in one tile
@@ -1130,26 +1109,6 @@
 				    
 				);
 
-				
-				
-				//~ $.ajax({
-				    //~ url: BASE_DIRECTORY + "/idmapping/" + x + "-" + y + ".json",
-				    //~ type: "GET",
-				    //~ dataType: "json",
-				    //~ async: false,
-				    //~ success: function(data) {
-					//~ if ( data.mjd && data.plateid && data.fiberid ) {
-					    //~ json_export_object.data.push([x,y,data.mjd.valueOf(), data.plateid.valueOf(), data.fiberid.valueOf()]);
-					//~ }
-					//~ else {
-					    //~ json_export_object.data.push([x,y,-1,-1,-1]);
-					//~ }
-	     
-				    //~ },
-				    //~ error: function(status) {
-					//~ json_export_object.data.push([x,y,-1,-1,-1]);
-				    //~ }
-				//~ });
 			    };
 			});
 		    };
@@ -1220,10 +1179,10 @@
     var popup = L.popup();
     
     // Set coordinates for initial map center if requested by url parameters
-    if ( getQueryVariable('goto_x') && getQueryVariable('goto_y') ) {
+    if ( getQueryVariable('som_x') && getQueryVariable('som_y') ) {
 	var initial_map_center = new L.LatLng(
-	    tile2lat(getQueryVariable('goto_x'), MAX_ZOOM), 
-	    tile2long(getQueryVariable('goto_y'), MAX_ZOOM)
+	    tile2lat(getQueryVariable('som_x'), MAX_ZOOM), 
+	    tile2long(getQueryVariable('som_y'), MAX_ZOOM)
 	)
     }
     else  {
@@ -1232,10 +1191,10 @@
     
     var map = new L.Map('map', {
 	    center: initial_map_center,
-	    minZoom: Math.max(0, MAX_ZOOM - 10),
+	    minZoom: Math.max(0, MAX_ZOOM - 8),
 	    maxZoom: MAX_ZOOM,
 	    zoom: MAX_ZOOM,
-	    //~ maxBounds: mapbounds
+	    //maxBounds: mapbounds
     });
     map.attributionControl.setPrefix('<a href="http://aspect-ui.de/" target="_blank">ASPECT-ui</a>');
 
@@ -1243,45 +1202,45 @@
 
 
     function onMapClick(e) {
-	var som_x = String(long2tile(e.latlng.lng, MAX_ZOOM));
-	var som_y = String(lat2tile(e.latlng.lat, MAX_ZOOM));
-	var SOM_keys = [{'som_x':som_x,'som_y':som_y}];
+        var som_x = String(long2tile(e.latlng.lng, MAX_ZOOM));
+        var som_y = String(lat2tile(e.latlng.lat, MAX_ZOOM));
+        var SOM_keys = [{'som_x':som_x,'som_y':som_y}];
 
 
-	getAjax("./spec_meta/" + som_x + "/" + som_y, 
-	    function(data) { // success
-		var spec_meta_json = JSON.parse(data);
+        getAjax("./spec_meta/" + som_x + "/" + som_y, 
+            function(data) { // success
+            var spec_meta_json = JSON.parse(data);
 
-		if (spec_meta_json.mjd != 0 && spec_meta_json.plate != 0 && spec_meta_json.fiberid != 0 && som_x >= 0 && som_x <= MAX_X && som_y >= 0 && som_y <= MAX_Y) {
-			var sdss_link = 
-			    '<a id="a_sdsslink" href="http://skyserver.sdss.org/dr12/en/tools/explore/summary.aspx?plate=' + spec_meta_json.plate + '&mjd=' + spec_meta_json.mjd + '&fiber=' + spec_meta_json.fiberid 
-				+ '" target="_blank">Explore</a>'
-			var zshift_link = 
-			    '| <a id="a_zshiftlink" href="https://aspect-ui.de/zshift/zshift.html?mjd=' + spec_meta_json.mjd + '&fiber=' + spec_meta_json.fiberid + '&plateid=' + spec_meta_json.plate
-			    + '" target="_blank">zshift</a>'
+            if (spec_meta_json.mjd != 0 && spec_meta_json.plate != 0 && spec_meta_json.fiberid != 0 && som_x >= 0 && som_x <= MAX_X && som_y >= 0 && som_y <= MAX_Y) {
+                var sdss_link = 
+                    '<a id="a_sdsslink" href="http://skyserver.sdss.org/dr12/en/tools/explore/summary.aspx?plate=' + spec_meta_json.plate + '&mjd=' + spec_meta_json.mjd + '&fiber=' + spec_meta_json.fiberid 
+                    + '" target="_blank">Explore</a>'
+                var zshift_link = 
+                    '| <a id="a_zshiftlink" href="https://aspect-ui.de/zshift/zshift.html?mjd=' + spec_meta_json.mjd + '&fiber=' + spec_meta_json.fiberid + '&plateid=' + spec_meta_json.plate
+                    + '" target="_blank">zshift</a>'
 
-			    var mpf = spec_meta_json.mjd + "-" + spec_meta_json.plate + "-" + spec_meta_json.fiberid
-			    var popupstring = "X: " + som_x +", Y: " + som_y + ",<br />MJD-Plate-Fiberid: " + mpf + ",<br />" + sdss_link + zshift_link
+                    var mpf = spec_meta_json.mjd + "-" + spec_meta_json.plate + "-" + spec_meta_json.fiberid
+                    var popupstring = "X: " + som_x +", Y: " + som_y + ",<br />MJD-Plate-Fiberid: " + mpf + ",<br />" + sdss_link + zshift_link
 
-		    }
-		    else {
-			var popupstring="X: " + som_x + ", Y: " + som_y + " ~ Here be dragons!"
-		    }
-		    popup
-			.setLatLng(e.latlng)
-			.setContent(popupstring)
-			.openOn(map);
-	    
-	    },
-	    function() { // 404
-		var popupstring="X: " + som_x + ", Y: " + som_y + " ~ Here be dragons!"
-		popup
-		    .setLatLng(e.latlng)
-		    .setContent(popupstring)
-		    .openOn(map);
-	    }
-	);
-	
+                }
+                else {
+                var popupstring="X: " + som_x + ", Y: " + som_y + " ~ Here be dragons!"
+                }
+                popup
+                .setLatLng(e.latlng)
+                .setContent(popupstring)
+                .openOn(map);
+            
+            },
+            function() { // 404
+            var popupstring="X: " + som_x + ", Y: " + som_y + " ~ Here be dragons!"
+            popup
+                .setLatLng(e.latlng)
+                .setContent(popupstring)
+                .openOn(map);
+            }
+        );
+    
     };
 
 
@@ -1392,7 +1351,7 @@
 
 
 //end the selectors
-    progress_layer.addTo(map);
+
     spec_exist_layer.addTo(map);
     spectra_layer.addTo(map);
 
@@ -1475,17 +1434,103 @@
     var redshift_color_scale = L.control.custom({
         position: 'bottomright',
         content: '<div style="background: white; height:50px; width:256px;overflow:hidden;position:relative; display:block; border-top:5">' +
-                    '<div style="margin-top:3px; top:0; left:0; height: 30px; width:100%; background: linear-gradient(to right, red, orange, yellow, green, blue, violet);"></div>' +
-                    '<span style="margin-left: 3px; float:left; top:0; height: 20px; width:9%">' + MIN_REDSHIFT + '</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">1</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">3</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">4</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">5</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">6</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">7</span>'+
-                    '<span style="float:left; top:0; height: 20px; width:10%">8</span>'+
+                   '<div style="margin-top:3px; top:0; left:0; height: 30px; width:100%;' + 
+                        'background:linear-gradient(to right, hsl(0, 90%, 50%) 0%, hsl(60, 90%, 50%) 20%, hsl(120, 90%, 50%) 40%, hsl(180, 90%, 50%) 60%, hsl(240, 90%, 50%) 80%, hsl(300, 50%, 50%) 100%);' +
+                    '"></div>' +
+                      '<div>' +
+                        '<span style="margin-left: 3px; float:left; top:0; height: 20px; width:9%">' + MIN_REDSHIFT + '</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:9%">0.1</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:9%">0.2</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:9%">0.3</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:10%">0.4</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:10%">0.5</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:10%">0.6</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:10%">0.7</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:10%">0.8</span>'+
+                        '<span style="float:left; top:0; height: 20px; width:10%; text-align: right">&ge; 1</span>'+
+                        //~ '<span style="float:left; top:0; height: 20px; width:10%">' + MAX_REDSHIFT + '</span>'+
+                       '</div>'+
+                    '</div>',
+        classes : '',
+        style   :
+        {
+            margin: '5px 20px',
+            padding: '0px',
+        },
+    });
+    //~ var redshift_color_scale = L.control.custom({
+        //~ position: 'bottomright',
+        //~ content: '<div style="background: white; height:50px; width:256px;overflow:hidden;position:relative; display:block; border-top:5">' +
+                    //~ '<div style="margin-top:3px; top:0; left:0; height: 30px; width:100%;' + 
+		    //~ 'background:#e1451d;background:-moz-linear-gradient(left,#e1451d 0,#fdff47 20%,#86f9fe 40%,#2900f8 60%,#6e00f8 80%,#e33df9 100%);' +
+		    //~ 'background:-webkit-gradient(linear,left top,right top,color-stop(0%,#e1451d),color-stop(20%,#fdff47),color-stop(40%,#86f9fe),color-stop(60%,#2900f8),color-stop(80%,#6e00f8),color-stop(100%,#e33df9));' +
+		    //~ 'background:-webkit-linear-gradient(left,#e1451d 0,#fdff47 20%,#86f9fe 40%,#2900f8 60%,#6e00f8 80%,#e33df9 100%);' + 
+		    //~ 'background:-o-linear-gradient(left,#e1451d 0,#fdff47 20%,#86f9fe 40%,#2900f8 60%,#6e00f8 80%,#e33df9 100%);' +
+		    //~ 'background:-ms-linear-gradient(left,#e1451d 0,#fdff47 20%,#86f9fe 40%,#2900f8 60%,#6e00f8 80%,#e33df9 100%);filter:progid:DXImageTransform.Microsoft.gradient(startColorstr="#e1451d",endColorstr="#e14423",GradientType=1);'+
+		    //~ 'background:linear-gradient(left,#e1451d 0,#fdff47 20%,#86f9fe 40%,#2900f8 60%,#6e00f8 80%,#e33df9 100%);' +
+		    //~ '"></div>' +
+                    //~ '<span style="margin-left: 3px; float:left; top:0; height: 20px; width:9%">' + MIN_REDSHIFT + '</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.1</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.2</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.3</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.4</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.5</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.6</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.7</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.8</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">0.9</span>'+
 
-                    '<span style="float:left; top:0; height: 20px; width:10%">' + MAX_REDSHIFT + '</span>'+
+                    //~ '<span style="float:left; top:0; height: 20px; width:10%">' + MAX_REDSHIFT + '</span>'+
+                  //~ '</div>',
+        //~ classes : '',
+        //~ style   :
+        //~ {
+            //~ margin: '5px 20px',
+            //~ padding: '0px',
+        //~ },
+    //~ });
+    
+    var sn_color_scale = L.control.custom({
+        position: 'bottomright',
+        content: '<div style="background: white; height:50px; width:256px;overflow:hidden;position:relative; display:block; border-top:5">' +
+                    '<div style="margin-left:3px; margin-top:3px; top:0; height: 30px;">' +
+                    '<span style="float:left; top:0; height: 30px; width:14%; background:#bf4040;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:14%;background:#f2a60d;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:14%;background:#f2f20d;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:14%;background:#0df20d;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:14%;background:#0df2f2;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:14%;background:#0d0df2;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:15%;background:#f20df2;"></span>'+
+                    '</div>' +
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&le; 3</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&le; 10</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&le; 20</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&le; 30</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&le; 40</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&le; 50</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:14%; text-align: center;">&gt; 50</span>'+
+                  '</div>',
+        classes : '',
+        style   :
+        {
+            margin: '5px 20px',
+            padding: '0px',
+        },
+    });
+    
+    var spec_class_color_scale = L.control.custom({
+        position: 'bottomright',
+        content: '<div style="background: white; height:50px; width:256px;overflow:hidden;position:relative; display:block; border-top:5">' +
+                    '<div style="margin-left:3px; margin-top:3px; top:0; height: 30px;">' +
+                    '<span style="float:left; top:0; height: 30px; width:24%; background:#d95f02;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:25%;background:#1b9e77;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:24%;background:#7570b3;"></span>'+
+                    '<span style="float:left; top:0; height: 30px; width:25%;background:#000;"></span>'+
+                    '</div>' +
+                    '<span style="float:left; top:0; height: 20px; width:24%; text-align: center;">STAR</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:25%; text-align: center;">GALAXY</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:24%; text-align: center;">QSO</span>'+
+                    '<span style="float:left; top:0; height: 20px; width:25%; text-align: center;">UNKNOWN</span>'+
                   '</div>',
         classes : '',
         style   :
