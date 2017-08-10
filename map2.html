@@ -786,8 +786,6 @@
 
     };
 
-
-
     function get_active_user_selection_layer_name() {
         var active_user_selection_layer_number = $( "#user_selection_layers" ).accordion( "option", "active" );
         var active_user_selection_layer = $( "#user_selection_layers > div > div > .layer_name")[active_user_selection_layer_number];
@@ -890,7 +888,7 @@
                                 //FIXME: doppelter code (siehe rectangular marker)
                                 if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
                                     if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
-                                    delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
+                                        delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
                                     }
                                     else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
                                 }
@@ -908,8 +906,7 @@
                                 console.log(status);
                             }
                         });
-                    }
-                }
+                    };
                 });
                 dialog_csv_import.dialog( "close" );
 
