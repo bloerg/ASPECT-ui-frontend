@@ -796,121 +796,129 @@
     };
 
     function importCSVtoUserDefinedLayer() {
-    //FIXME: sanity checks
-    var active_user_selection_layer_name = get_active_user_selection_layer_name();
-    var csv_import = Papa.parse( csv_import_textarea.value, {
-        header: true, 
-        dynamicTyping: true, 
-        skipEmptyLines: true
-    });
-    if (csv_import.data && csv_import.data.length > 0) {
-        if ( $.inArray("som_x", csv_import.meta.fields) > -1 &&
-         $.inArray("som_y", csv_import.meta.fields) > -1
-        )
-        {
-        
-        // TODO: Der AJAX-CALL gibt ein ARRAY für 2**MAX_ZOOM * 2**MAX_ZOOM zurück
-        // effizientier wäre in den meisten Fällen ein ARRAY für MAX_Y * MAX_X 
-        $.ajax({
-            url: './specs_exist/' + 0 + '/' + 0 + '/' + 0,
-            type: "GET",
-            dataType: "text",
-            async: false,
-            success: function(data) {
-
-            var edge_length = Math.pow(2, MAX_ZOOM)
-            if (data.length == Math.pow(edge_length,2)) {
-                for (var i = 0; i< csv_import.data.length; i++) {
-                var x = csv_import.data[i].som_x;
-                var y = csv_import.data[i].som_y;
-                if (data[ x * edge_length + y ].charCodeAt(0) == 1) {
-                    //FIXME: doppelter code (siehe rectangular marker)
-                    if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
-                    if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
-                        delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
-                    }
-                    else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
-                    }
-                    else {
-                    user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x] = [];
-                    //FIXME: doppelter code, siehe ein paar Zeilen vorher
-                    user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
-                    };
-                    //FIXME: doppelter code wie bei rectangular marker zu Ende
-                }
-                
-                
-                };
-            }
-
-            },
-            error: function(status) {
-            console.log(status);
-            }
+        //FIXME: sanity checks
+        var active_user_selection_layer_name = get_active_user_selection_layer_name();
+        var csv_import = Papa.parse( csv_import_textarea.value, {
+            header: true, 
+            dynamicTyping: true, 
+            skipEmptyLines: true
         });
-
-        //~ });
-        dialog_csv_import.dialog( "close" );
-            
-        };
-
-        if (
-            $.inArray("mjd", csv_import.meta.fields) > -1 && 
-            $.inArray("plate", csv_import.meta.fields) > -1 &&
-            $.inArray("fiberid", csv_import.meta.fields) > -1 &&
-            $.inArray("som_x", csv_import.meta.fields) == -1 &&
-            $.inArray("som_y", csv_import.meta.fields) == -1
-        )
+        if (csv_import.data && csv_import.data.length > 0) {
+            // Import contains som coordinates
+            if ( 
+                csv_import.meta.fields.indexOf("som_x") != -1 
+             && csv_import.meta.fields.indexOf("som_y") != -1 
+            )
             {
-            $("#csv_import_textarea").val("...")
-            $("#csv_import_textarea").val("Please be patient, this may take a while, depending on the length of your input catalog.")
-
-            $.each(csv_import.data, function(key, import_sdss_ids) {
-                var import_mjd=import_sdss_ids.mjd;
-                var import_plate=import_sdss_ids.plate;
-                var import_fiberid=import_sdss_ids.fiberid;
-
-
-                $.ajax({
-                url: "./sdss_to_som/" + import_mjd + "/" + import_plate + "/" + import_fiberid,
-                type: "GET",
-                dataType: "json",
-                async: false,
-                success: function(data) {
-                    //~ if ( data.som_x && data.som_y) {
-                    var x = data.som_x;
-                    var y = data.som_y;
-                    //FIXME: doppelter code (siehe rectangular marker)
-                    if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
-                        if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
-                        delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
-                        }
-                        else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+                // retrieve the som-coordinate - sdss-id - mapping in 8 parts
+                for ( var temp_x = 0 ; temp_x < Math.pow(2, Math.min(2, MAX_ZOOM)); temp_x++) {
+                    for ( var temp_y = 0 ; temp_y < Math.pow(2, Math.min(2, MAX_ZOOM)); temp_y++) {
+                        $.ajax({
+                            url: './specs_exist/' + Math.min(2, MAX_ZOOM) + '/' + temp_x + '/' + temp_y,
+                            type: "GET",
+                            dataType: "text",
+                            async: false,
+                            success: function(data) {
+                                var edge_length = Math.pow(2, MAX_ZOOM - Math.min(2, MAX_ZOOM))
+                                var data_offset = [temp_x * edge_length, temp_y * edge_length];
+                                if (data.length == edge_length * edge_length) {
+                                    for (var i = 0; i< csv_import.data.length; i++) {
+                                        var x = csv_import.data[i].som_x;
+                                        var y = csv_import.data[i].som_y;
+                                        if (
+                                            x >= data_offset[0] &&
+                                            x < data_offset[0] + edge_length &&
+                                            y >= data_offset[1] &&
+                                            y < data_offset[1] + edge_length &&
+                                            data.charCodeAt((y - data_offset[1]) * edge_length + (x - data_offset[1])) == 1
+                                        ) {
+                                            //FIXME: doppelter code (siehe rectangular marker)
+                                            if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
+                                                if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
+                                                    delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
+                                                }
+                                                else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+                                            }
+                                            else {
+                                                user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x] = [];
+                                                //FIXME: doppelter code, siehe ein paar Zeilen vorher
+                                                user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+                                            };
+                                            //FIXME: doppelter code wie bei rectangular marker zu Ende
+                                        }
+                                    };
+                                }
+                            },
+                            error: function(status) {
+                                console.log(status);
+                            }
+                        });
                     }
-                    else {
-                        user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x] = [];
-                        //FIXME: doppelter code, siehe ein paar Zeilen vorher
-                        user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;					    
-                    };
-                    //FIXME: doppelter code wie bei rectangular marker zu Ende
+                }
 
-                    //~ }
+                //~ });
+                dialog_csv_import.dialog( "close" );
+                
+            };
+            // input does not contain som coordinates but SDSS ids
+            if (
+                csv_import.meta.fields.indexOf("mjd") != -1 && 
+                csv_import.meta.fields.indexOf("plate") != -1 &&
+                csv_import.meta.fields.indexOf("fiberid") != -1 &&
+                csv_import.meta.fields.indexOf("som_x") == -1 &&
+                csv_import.meta.fields.indexOf("som_y") == -1
+            )
+                {
+                $("#csv_import_textarea").val("...")
+                $("#csv_import_textarea").val("Please be patient, this may take a while, depending on the length of your input catalog.")
+                console.log(csv_import.data)
+                $.each(csv_import.data, function(key, import_sdss_ids) {
+                    var import_mjd=import_sdss_ids.mjd;
+                    var import_plate=import_sdss_ids.plate;
+                    var import_fiberid=import_sdss_ids.fiberid;
 
-                },
-                error: function(status) {
-                    console.log(status);
+                    if (import_sdss_ids.mjd != -1 && import_sdss_ids.plate != 1 && import_sdss_ids.fiberid != 1) {
+                        $.ajax({
+                            url: "./sdss_to_som/" + import_mjd + "/" + import_plate + "/" + import_fiberid,
+                            type: "GET",
+                            dataType: "json",
+                            async: false,
+                            success: function(data) {
+                                //~ if ( data.som_x && data.som_y) {
+                                var x = data.som_x;
+                                var y = data.som_y;
+                                //FIXME: doppelter code (siehe rectangular marker)
+                                if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x]) {
+                                    if (user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y]) {
+                                    delete user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y];
+                                    }
+                                    else user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;
+                                }
+                                else {
+                                    user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x] = [];
+                                    //FIXME: doppelter code, siehe ein paar Zeilen vorher
+                                    user_defined_layers[active_user_selection_layer_name].options.user_defined_layer_members[x][y] = true;					    
+                                };
+                                //FIXME: doppelter code wie bei rectangular marker zu Ende
+
+                                //~ }
+
+                            },
+                            error: function(status) {
+                                console.log(status);
+                            }
+                        });
+                    }
                 }
                 });
+                dialog_csv_import.dialog( "close" );
 
-            });
-            dialog_csv_import.dialog( "close" );
-
+            };
         };
-    };
 
-    if ( map.hasLayer(user_defined_layers[active_user_selection_layer_name]) ) {
-        user_defined_layers[active_user_selection_layer_name].redraw();
-    };
+        if ( map.hasLayer(user_defined_layers[active_user_selection_layer_name]) ) {
+            user_defined_layers[active_user_selection_layer_name].redraw();
+        };
     };
     function addUserDefinedLayerByDialog() {
         addUserDefinedLayer(user_defined_selection_layer_name.value, user_defined_selection_layer_color.value, "line");
@@ -1225,7 +1233,7 @@
         )
     }
     else  {
-    v   ar initial_map_center = new L.LatLng(tile2lat(MAX_X / 2, MAX_ZOOM), tile2long(MAX_Y / 2, MAX_ZOOM));
+        var initial_map_center = new L.LatLng(tile2lat(MAX_X / 2, MAX_ZOOM), tile2long(MAX_Y / 2, MAX_ZOOM));
     }
 
     var map = new L.Map('map', {
