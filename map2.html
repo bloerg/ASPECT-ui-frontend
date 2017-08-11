@@ -808,7 +808,7 @@
              && csv_import.meta.fields.indexOf("som_y") != -1 
             )
             {
-                // retrieve the som-coordinate - sdss-id - mapping in 8 parts
+                // retrieve the som-coordinate - sdss-id - mapping in  parts
                 for ( var temp_x = 0 ; temp_x < Math.pow(2, Math.min(2, MAX_ZOOM)); temp_x++) {
                     for ( var temp_y = 0 ; temp_y < Math.pow(2, Math.min(2, MAX_ZOOM)); temp_y++) {
                         $.ajax({
